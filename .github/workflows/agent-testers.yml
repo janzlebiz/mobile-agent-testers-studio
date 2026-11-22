@@ -17,7 +17,7 @@ on:
       ref: { type: string, default: "" }
       brief: { type: string, default: "AGENT_BRIEF.md" }
       bug_report: { type: string, default: "" }
-      model: { type: string, default: "sonnet" }
+      model: { type: string, default: "gemini-2.5-flash" }
       llm_base_url: { type: string, default: "" }
       block_hosts: { type: string, default: "app.posthog.com eu.i.posthog.com us.i.posthog.com graph.facebook.com api.mixpanel.com api2.amplitude.com" }
       record_video: { type: boolean, default: false }
@@ -63,8 +63,8 @@ on:
         description: "Bug to reproduce instead of exploring: an issue (owner/repo#123 or its URL) or the steps as text. Agents follow it: read it first"
         default: ""
       model:
-        description: "Model: sonnet, opus, haiku (cheapest) or a full Claude id. With llm_base_url, the provider's model name"
-        default: sonnet
+        description: "Model: gemini-2.5-flash (default), gemini-2.5-pro, or sonnet/haiku/opus"
+        default: gemini-2.5-flash
       llm_base_url:
         description: "Optional: any Anthropic-compatible API instead of Claude (OpenRouter, DeepSeek, Kimi, GLM...), key in the LLM_API_KEY secret. Quality depends on how well the model reads screenshots and reasons: docs/cheaper-models.md"
         default: ""
@@ -347,6 +347,7 @@ jobs:
 
       - name: Agent
         env:
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           PERSONA: ${{ matrix.persona }}

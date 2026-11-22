@@ -157,6 +157,55 @@ class StudioTests(unittest.TestCase):
             rc_gate = cli_main(["gate", str(run_dir), "--fail-on-severity", "blocker"])
             self.assertEqual(rc_gate, 2)
 
+    def test_pwa_assets_present(self):
+        for rel in ("pwa/index.html", "pwa/app.js", "pwa/styles.css", "pwa/manifest.webmanifest", "pwa/sw.js", "pwa/icon.svg"):
+            self.assertTrue((ROOT / rel).exists(), f"Missing {rel}")
+        manifest = json.loads((ROOT / "pwa/manifest.webmanifest").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["display"], "standalone")
+
+    def test_gemini_agent_finish_report(self):
+        import os
+        from unittest.mock import patch
+        import gemini_agent
+
+        fake_resp = {
+            "usageMetadata": {"promptTokenCount": 1000, "candidatesTokenCount": 200},
+            "candidates": [{
+                "content": {
+                    "role": "model",
+                    "parts": [{
+                        "functionCall": {
+                            "name": "finish_report",
+                            "args": {
+                                "report_md": "# Gemini Report\nAll good.",
+                                "score": 8,
+                                "goal_reached": "yes",
+                                "issues": [{"title": "Minor typo", "severity": "minor", "screen": "Home"}],
+                            },
+                        }
+                    }],
+                }
+            }],
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            (tmp_path / "personas.json").write_text((ROOT / "personas.json").read_text(encoding="utf-8"), encoding="utf-8")
+            (tmp_path / "AGENT_BRIEF.md").write_text("Test brief", encoding="utf-8")
+            old_cwd = Path.cwd()
+            os.chdir(tmp_path)
+            try:
+                with patch.dict(os.environ, {"PERSONA": "anna", "PLATFORM": "android", "GEMINI_API_KEY": "test-key", "MODEL": "gemini-2.5-flash"}):
+                    with patch.object(gemini_agent, "call_gemini", return_value=fake_resp):
+                        rc = gemini_agent.run_session()
+                self.assertEqual(rc, 0)
+                self.assertTrue((tmp_path / "results/anna/report.md").exists())
+                findings = json.loads((tmp_path / "results/anna/findings.json").read_text(encoding="utf-8"))
+                self.assertEqual(findings["score"], 8)
+                tel = json.loads((tmp_path / "results/agent-output.json").read_text(encoding="utf-8"))
+                self.assertIn("gemini-2.5-flash", tel["modelUsage"])
+            finally:
+                os.chdir(old_cwd)
+
 
 if __name__ == "__main__":
     unittest.main()

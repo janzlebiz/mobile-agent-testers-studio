@@ -1,0 +1,167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#2563eb" />
+  <title>Mobile Agent Testers Studio</title>
+  <link rel="manifest" href="./manifest.webmanifest" />
+  <link rel="icon" href="./icon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="./styles.css" />
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <img src="./icon.svg" alt="MAT Studio" />
+    <span>Mobile Agent Testers Studio</span>
+  </div>
+  <div class="header-actions">
+    <div id="google-user" class="user-pill hidden"></div>
+    <button id="install-btn" class="btn primary hidden">Install App</button>
+  </div>
+</header>
+
+<nav class="tabs">
+  <button class="tab active" data-tab="setup">1. Google &amp; Setup</button>
+  <button class="tab" data-tab="launch">2. Launch Run</button>
+  <button class="tab" data-tab="runs">3. Live Runs</button>
+  <button class="tab" data-tab="results">4. Results Viewer</button>
+</nav>
+
+<main>
+  <!-- TAB 1: GOOGLE LOGIN + ZERO-BASH SETUP -->
+  <section id="tab-setup">
+    <div class="card">
+      <h2>Step 1: Sign in with Google &amp; Connect Gemini API Key</h2>
+      <p style="font-size:13px;color:var(--muted);margin-top:0;">
+        No Claude subscription or terminal needed. Sign in with Google and/or paste your Gemini API key from
+        <a href="https://aistudio.google.com/apikey" target="_blank" rel="noreferrer" style="color:var(--accent);">Google AI Studio</a>.
+        Credentials stay in your browser's local storage.
+      </p>
+      <div class="row">
+        <div>
+          <label for="google-client-id">Google OAuth Client ID (optional, for Google Sign-In)</label>
+          <input id="google-client-id" type="text" placeholder="1234567890-abc.apps.googleusercontent.com" />
+        </div>
+        <div>
+          <label for="gemini-key">Gemini API Key (recommended for GitHub Actions runners)</label>
+          <input id="gemini-key" type="password" placeholder="AIzaSy..." />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="google-signin-btn" class="btn primary">Sign in with Google</button>
+        <button id="save-gemini-btn" class="btn">Save Gemini Key</button>
+        <button id="test-gemini-btn" class="btn">Test Gemini Connection</button>
+      </div>
+      <div id="gemini-status" class="status hidden"></div>
+    </div>
+
+    <div class="card">
+      <h2>Step 2: Connect GitHub Repository</h2>
+      <p style="font-size:13px;color:var(--muted);margin-top:0;">
+        Connect your fork/repo of <code>mobile-agent-testers-studio</code> so this PWA can trigger runs and push your public encryption key without any bash commands.
+      </p>
+      <div class="row">
+        <div>
+          <label for="gh-repo">GitHub Repository (owner/repo)</label>
+          <input id="gh-repo" type="text" placeholder="yourname/mobile-agent-testers-studio" />
+        </div>
+        <div>
+          <label for="gh-pat">GitHub Personal Access Token (repo + workflow scopes)</label>
+          <input id="gh-pat" type="password" placeholder="github_pat_..." />
+        </div>
+      </div>
+      <div class="btn-row">
+        <button id="save-gh-btn" class="btn primary">Save GitHub Connection</button>
+        <button id="gen-keys-btn" class="btn">Generate Encryption Keys &amp; Push Public Key</button>
+        <button id="push-secrets-btn" class="btn">Sync GEMINI_API_KEY to GitHub Secrets</button>
+      </div>
+      <div id="gh-status" class="status hidden"></div>
+    </div>
+  </section>
+
+  <!-- TAB 2: LAUNCH RUN -->
+  <section id="tab-launch" class="hidden">
+    <div class="card">
+      <h2>Configure &amp; Launch Mobile QA Run</h2>
+      <div class="row">
+        <div>
+          <label for="run-source-repo">App Repository (optional, owner/repo)</label>
+          <input id="run-source-repo" type="text" placeholder="Leave empty to test demo-app" />
+        </div>
+        <div>
+          <label for="run-app-dir">App Directory</label>
+          <input id="run-app-dir" type="text" value="demo-app" />
+        </div>
+        <div>
+          <label for="run-app-id">App ID (Android package / iOS bundle ID)</label>
+          <input id="run-app-id" type="text" value="com.example.tinytodo" />
+        </div>
+        <div>
+          <label for="run-model">Gemini Model</label>
+          <select id="run-model">
+            <option value="gemini-2.5-flash">gemini-2.5-flash (fast, ~$0.05/phone)</option>
+            <option value="gemini-2.5-pro">gemini-2.5-pro (deep reasoning)</option>
+            <option value="gemini-2.0-flash">gemini-2.0-flash</option>
+          </select>
+        </div>
+        <div>
+          <label for="run-brief">Test Mode / Brief</label>
+          <select id="run-brief">
+            <option value="AGENT_BRIEF.md">Explore like new users (AGENT_BRIEF.md)</option>
+            <option value="briefs/improve.md">UX Improvement Report (briefs/improve.md)</option>
+          </select>
+        </div>
+        <div>
+          <label for="run-bug">Or Reproduce Bug (optional issue URL or steps)</label>
+          <input id="run-bug" type="text" placeholder="owner/repo#123 or steps..." />
+        </div>
+      </div>
+
+      <h3 style="font-size:14px;margin:18px 0 6px 0;">Select Personas</h3>
+      <div class="btn-row" style="margin-top:0;margin-bottom:8px;">
+        <button id="pick-fast" class="btn">Fast 4 (anna, malik, clara, jonas)</button>
+        <button id="pick-all" class="btn">All 20</button>
+        <button id="pick-none" class="btn">Clear</button>
+      </div>
+      <div id="persona-grid" class="persona-grid"></div>
+
+      <div class="btn-row">
+        <button id="launch-run-btn" class="btn ok">Launch Test Run on GitHub Actions</button>
+      </div>
+      <div id="launch-status" class="status hidden"></div>
+    </div>
+  </section>
+
+  <!-- TAB 3: LIVE RUNS -->
+  <section id="tab-runs" class="hidden">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;">
+        <h2 style="margin:0;">GitHub Actions Runs</h2>
+        <button id="refresh-runs-btn" class="btn">Refresh</button>
+      </div>
+      <table style="margin-top:12px;">
+        <thead><tr><th>Run ID</th><th>Status</th><th>Conclusion</th><th>Created</th><th>Action</th></tr></thead>
+        <tbody id="runs-tbody"><tr><td colspan="5" style="color:var(--muted);">Connect GitHub in Setup tab to view runs.</td></tr></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- TAB 4: RESULTS VIEWER -->
+  <section id="tab-results" class="hidden">
+    <div class="card">
+      <h2>Load Findings or Dashboard</h2>
+      <p style="font-size:13px;color:var(--muted);margin-top:0;">
+        Drop a <code>findings.json</code> file from any persona run to inspect issues directly in the app.
+      </p>
+      <input id="findings-file" type="file" accept=".json" />
+      <div id="results-preview" style="margin-top:16px;"></div>
+    </div>
+  </section>
+</main>
+
+<script src="https://cdn.jsdelivr.net/npm/libsodium-wrappers@0.7.15/dist/browsers/sodium.min.js" async></script>
+<script src="./app.js"></script>
+</body>
+</html>
