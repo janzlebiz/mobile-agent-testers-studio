@@ -1,5 +1,6 @@
 /* Mobile Agent Testers Studio PWA */
 const STORAGE = {
+  email: "mat_google_email",
   clientId: "mat_google_client_id",
   geminiKey: "mat_gemini_api_key",
   oauthToken: "mat_google_oauth_token",
@@ -56,7 +57,8 @@ document.querySelectorAll(".tab").forEach((btn) => {
 
 // ---------- Restore Saved Inputs ----------
 window.addEventListener("DOMContentLoaded", async () => {
-  $("google-client-id").value = localStorage.getItem(STORAGE.clientId) || "";
+  $("google-email").value = localStorage.getItem(STORAGE.email) || "";
+  $("google-client-id").value = localStorage.getItem(STORAGE.clientId) || window.MAT_CONFIG?.googleClientId || "";
   const savedKey = localStorage.getItem(STORAGE.geminiKey) || "";
   $("gemini-key").value = savedKey;
   if (savedKey) showKeyBadge(savedKey, "saved");
@@ -64,6 +66,15 @@ window.addEventListener("DOMContentLoaded", async () => {
   $("gh-pat").value = localStorage.getItem(STORAGE.ghPat) || "";
   await loadPersonas();
 });
+
+function getClientId() {
+  return (
+    (window.MAT_CONFIG?.googleClientId || "").trim() ||
+    $("google-client-id").value.trim() ||
+    localStorage.getItem(STORAGE.clientId) ||
+    ""
+  );
+}
 
 function showKeyBadge(key, source) {
   const masked = key.length > 10 ? `${key.slice(0, 6)}...${key.slice(-4)}` : "***";
@@ -179,18 +190,24 @@ $("fetch-key-btn").onclick = async () => {
 };
 
 $("google-signin-btn").onclick = () => {
-  const clientId = $("google-client-id").value.trim();
+  const email = $("google-email").value.trim();
+  if (email) localStorage.setItem(STORAGE.email, email);
+  const clientId = getClientId();
   if (!clientId) {
-    setStatus("gemini-status", "Enter your Google OAuth Client ID first.", "err");
+    setStatus(
+      "gemini-status",
+      "Deployment OAuth Client ID not configured yet. Repo owner: set GOOGLE_CLIENT_ID in GitHub Repo Variables (or open Advanced Config below).",
+      "err"
+    );
     return;
   }
-  localStorage.setItem(STORAGE.clientId, clientId);
   if (!window.google?.accounts?.oauth2) {
     setStatus("gemini-status", "Google Identity Services script still loading or blocked offline.", "err");
     return;
   }
   const tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: clientId,
+    ...(email ? { hint: email } : {}),
     scope: [
       "openid",
       "email",
@@ -208,6 +225,10 @@ $("google-signin-btn").onclick = () => {
         const u = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: { Authorization: `Bearer ${resp.access_token}` },
         }).then((r) => r.json());
+        if (u.email) {
+          $("google-email").value = u.email;
+          localStorage.setItem(STORAGE.email, u.email);
+        }
         const pill = $("google-user");
         pill.innerHTML = `${u.picture ? `<img src="${esc(u.picture)}" alt="" />` : ""}<span>${esc(u.email || u.name || "Google User")}</span>`;
         pill.classList.remove("hidden");

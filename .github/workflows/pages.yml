@@ -23,10 +23,13 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Prepare Pages bundle
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.GOOGLE_CLIENT_ID }}
         run: |
           mkdir -p _site/pwa
           cp -r pwa/* _site/pwa/
           cp personas.json _site/personas.json
+          printf 'window.MAT_CONFIG = { googleClientId: %s };\n' "$(python3 -c 'import json,os; print(json.dumps(os.environ.get("GOOGLE_CLIENT_ID","")))')" > _site/pwa/config.js
           printf '<meta http-equiv="refresh" content="0; url=./pwa/">\n' > _site/index.html
       - uses: actions/configure-pages@v5
         with:
