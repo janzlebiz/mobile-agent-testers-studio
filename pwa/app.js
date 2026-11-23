@@ -57,11 +57,20 @@ document.querySelectorAll(".tab").forEach((btn) => {
 // ---------- Restore Saved Inputs ----------
 window.addEventListener("DOMContentLoaded", async () => {
   $("google-client-id").value = localStorage.getItem(STORAGE.clientId) || "";
-  $("gemini-key").value = localStorage.getItem(STORAGE.geminiKey) || "";
+  const savedKey = localStorage.getItem(STORAGE.geminiKey) || "";
+  $("gemini-key").value = savedKey;
+  if (savedKey) showKeyBadge(savedKey, "saved");
   $("gh-repo").value = localStorage.getItem(STORAGE.ghRepo) || guessRepoFromLocation();
   $("gh-pat").value = localStorage.getItem(STORAGE.ghPat) || "";
   await loadPersonas();
 });
+
+function showKeyBadge(key, source) {
+  const masked = key.length > 10 ? `${key.slice(0, 6)}...${key.slice(-4)}` : "***";
+  const badge = $("gemini-key-badge");
+  badge.textContent = `Gemini API Key ready (${source}): ${masked}`;
+  badge.classList.remove("hidden");
+}
 
 function guessRepoFromLocation() {
   const host = location.hostname;
@@ -73,17 +82,106 @@ function guessRepoFromLocation() {
   return "";
 }
 
-// ---------- Google Sign-In & Gemini API ----------
+// ---------- Google Sign-In & Auto Gemini API Key ----------
 $("save-gemini-btn").onclick = () => {
+  const k = $("gemini-key").value.trim();
   localStorage.setItem(STORAGE.clientId, $("google-client-id").value.trim());
-  localStorage.setItem(STORAGE.geminiKey, $("gemini-key").value.trim());
-  setStatus("gemini-status", "Gemini settings saved locally in browser storage.", "ok");
+  localStorage.setItem(STORAGE.geminiKey, k);
+  if (k) showKeyBadge(k, "manual");
+  setStatus("gemini-status", "Manual Gemini key saved locally in browser storage.", "ok");
+};
+
+async function fetchOrCreateGeminiKey(projectId, token) {
+  setStatus("gemini-status", `Looking up Gemini API key in GCP project '${projectId}'...`);
+  const headers = { Authorization: `Bearer ${token}`, "Content-Type": "application/json" };
+  const base = `https://apikeys.googleapis.com/v2/projects/${encodeURIComponent(projectId)}/locations/global/keys`;
+
+  const listResp = await fetch(base, { headers });
+  if (!listResp.ok) {
+    const err = await listResp.json().catch(() => ({}));
+    throw new Error(err.error?.message || `API Keys API HTTP ${listResp.status} (enable apikeys.googleapis.com on project ${projectId})`);
+  }
+  const listData = await listResp.json();
+  const keys = listData.keys || [];
+  let targetKey = keys.find((k) => k.name.endsWith("/mat-studio-gemini-key")) || keys[0];
+
+  if (!targetKey) {
+    setStatus("gemini-status", `Creating Gemini API key in project '${projectId}'...`);
+    const createResp = await fetch(`${base}?keyId=mat-studio-gemini-key`, {
+      method: "POST",
+      headers,
+      body: JSON.stringify({
+        displayName: "MAT Studio Gemini Key",
+        restrictions: { apiTargets: [{ service: "generativelanguage.googleapis.com" }] },
+      }),
+    });
+    if (!createResp.ok) {
+      const err = await createResp.json().catch(() => ({}));
+      throw new Error(err.error?.message || `Create key failed: HTTP ${createResp.status}`);
+    }
+    const op = await createResp.json();
+    for (let i = 0; i < 15; i++) {
+      if (op.done && op.response) {
+        targetKey = op.response;
+        break;
+      }
+      await new Promise((r) => setTimeout(r, 1200));
+      const poll = await fetch(`https://apikeys.googleapis.com/v2/${op.name}`, { headers }).then((r) => r.json());
+      if (poll.done) {
+        if (poll.error) throw new Error(poll.error.message || "Key creation operation failed");
+        targetKey = poll.response;
+        break;
+      }
+    }
+  }
+
+  if (!targetKey?.name) throw new Error("Could not resolve API key resource name.");
+  const strResp = await fetch(`https://apikeys.googleapis.com/v2/${targetKey.name}/keyString`, { headers });
+  if (!strResp.ok) throw new Error(`Failed to read keyString: HTTP ${strResp.status}`);
+  const { keyString } = await strResp.json();
+  if (!keyString) throw new Error("Empty keyString returned.");
+
+  localStorage.setItem(STORAGE.geminiKey, keyString);
+  $("gemini-key").value = keyString;
+  showKeyBadge(keyString, `auto from ${projectId}`);
+  setStatus("gemini-status", `Gemini API key automatically retrieved from project '${projectId}'!`, "ok");
+}
+
+async function loadGcpProjectsAndKey(token) {
+  setStatus("gemini-status", "Signed in! Fetching your Google Cloud projects...");
+  const projResp = await fetch(
+    "https://cloudresourcemanager.googleapis.com/v1/projects?filter=lifecycleState:ACTIVE",
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  if (!projResp.ok) {
+    throw new Error(`Cloud Resource Manager HTTP ${projResp.status}. Use manual fallback or enable Resource Manager API.`);
+  }
+  const { projects = [] } = await projResp.json();
+  if (!projects.length) {
+    throw new Error("No active Google Cloud projects found on this account.");
+  }
+  const sel = $("gcp-project");
+  sel.innerHTML = projects.map((p) => `<option value="${esc(p.projectId)}">${esc(p.name || p.projectId)} (${esc(p.projectId)})</option>`).join("");
+  $("gcp-project-wrap").classList.remove("hidden");
+  $("fetch-key-btn").classList.remove("hidden");
+  await fetchOrCreateGeminiKey(projects[0].projectId, token);
+}
+
+$("fetch-key-btn").onclick = async () => {
+  const token = localStorage.getItem(STORAGE.oauthToken) || "";
+  const pid = $("gcp-project").value;
+  if (!token || !pid) return;
+  try {
+    await fetchOrCreateGeminiKey(pid, token);
+  } catch (err) {
+    setStatus("gemini-status", err.message, "err");
+  }
 };
 
 $("google-signin-btn").onclick = () => {
   const clientId = $("google-client-id").value.trim();
   if (!clientId) {
-    setStatus("gemini-status", "Enter a Google OAuth Client ID first, or paste a Gemini API Key directly.", "err");
+    setStatus("gemini-status", "Enter your Google OAuth Client ID first.", "err");
     return;
   }
   localStorage.setItem(STORAGE.clientId, clientId);
@@ -93,14 +191,19 @@ $("google-signin-btn").onclick = () => {
   }
   const tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: clientId,
-    scope: "openid email profile https://www.googleapis.com/auth/generative-language.retriever",
+    scope: [
+      "openid",
+      "email",
+      "profile",
+      "https://www.googleapis.com/auth/cloud-platform",
+      "https://www.googleapis.com/auth/generative-language.retriever",
+    ].join(" "),
     callback: async (resp) => {
       if (resp.error) {
         setStatus("gemini-status", `Google Sign-In failed: ${resp.error}`, "err");
         return;
       }
       localStorage.setItem(STORAGE.oauthToken, resp.access_token);
-      setStatus("gemini-status", "Signed in with Google! OAuth token active.", "ok");
       try {
         const u = await fetch("https://www.googleapis.com/oauth2/v3/userinfo", {
           headers: { Authorization: `Bearer ${resp.access_token}` },
@@ -109,6 +212,11 @@ $("google-signin-btn").onclick = () => {
         pill.innerHTML = `${u.picture ? `<img src="${esc(u.picture)}" alt="" />` : ""}<span>${esc(u.email || u.name || "Google User")}</span>`;
         pill.classList.remove("hidden");
       } catch {}
+      try {
+        await loadGcpProjectsAndKey(resp.access_token);
+      } catch (err) {
+        setStatus("gemini-status", `Signed in, but auto-key fetch failed: ${err.message}`, "err");
+      }
     },
   });
   tokenClient.requestAccessToken({ prompt: "consent" });
@@ -118,7 +226,7 @@ $("test-gemini-btn").onclick = async () => {
   const key = $("gemini-key").value.trim() || localStorage.getItem(STORAGE.geminiKey) || "";
   const token = localStorage.getItem(STORAGE.oauthToken) || "";
   if (!key && !token) {
-    setStatus("gemini-status", "Provide a Gemini API Key or sign in with Google first.", "err");
+    setStatus("gemini-status", "Sign in with Google first.", "err");
     return;
   }
   setStatus("gemini-status", "Testing Gemini API connection...");
